@@ -18,11 +18,19 @@ public class Pipeline {
         this.log = log;
     }
 
+    /**
+     * Executa o pipeline: roda testes, faz deploy e envia notificação por email.
+     */
     public void run(Project project) {
+        PipelineResult result = buildResult(project);
+        sendEmailNotification(result);
+    }
+
+    private PipelineResult buildResult(Project project) {
         boolean testsPassed = runTests(project);
         // deploy só ocorre se os testes passaram
         boolean deploySuccessful = testsPassed && deploy(project);
-        sendEmailNotification(testsPassed, deploySuccessful);
+        return new PipelineResult(testsPassed, deploySuccessful);
     }
 
     private boolean runTests(Project project) {
@@ -50,11 +58,11 @@ public class Pipeline {
         }
     }
 
-    private void sendEmailNotification(boolean testsPassed, boolean deploySuccessful) {
+    private void sendEmailNotification(PipelineResult result) {
         if (config.sendEmailSummary()) {
             log.info("Sending email");
-            if (testsPassed) {
-                emailer.send(deploySuccessful ? "Deployment completed successfully" : "Deployment failed");
+            if (result.testsPassed()) {
+                emailer.send(result.deploySuccessful() ? "Deployment completed successfully" : "Deployment failed");
             } else {
                 emailer.send("Tests failed");
             }
