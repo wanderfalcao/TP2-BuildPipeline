@@ -1,9 +1,11 @@
 package org.sammancoaching;
 
 import org.sammancoaching.dependencies.Config;
+import org.sammancoaching.dependencies.DeploymentEnvironment;
 import org.sammancoaching.dependencies.Emailer;
 import org.sammancoaching.dependencies.Logger;
 import org.sammancoaching.dependencies.Project;
+import org.sammancoaching.dependencies.TestStatus;
 
 public class Pipeline {
     private static final String SUCCESS = "success";
@@ -19,7 +21,8 @@ public class Pipeline {
     }
 
     /**
-     * Executa o pipeline: roda testes, faz deploy e envia notificação por email.
+     * Executa o pipeline: roda testes, faz deploy em staging, valida smoke tests,
+     * faz deploy em produção e envia notificação por email.
      */
     public void run(Project project) {
         PipelineResult result = buildResult(project);
@@ -28,9 +31,22 @@ public class Pipeline {
 
     private PipelineResult buildResult(Project project) {
         boolean testsPassed = runTests(project);
-        // deploy só ocorre se os testes passaram
-        boolean deploySuccessful = testsPassed && deploy(project);
-        return new PipelineResult(testsPassed, deploySuccessful);
+        if (!testsPassed) {
+            return new PipelineResult(false, false);
+        }
+
+        boolean stagingOk = deployToEnvironment(project, DeploymentEnvironment.STAGING);
+        if (!stagingOk) {
+            return new PipelineResult(true, false);
+        }
+
+        boolean smokeOk = runSmokeTests(project);
+        if (!smokeOk) {
+            return new PipelineResult(true, false);
+        }
+
+        boolean prodOk = deployToEnvironment(project, DeploymentEnvironment.PRODUCTION);
+        return new PipelineResult(true, prodOk);
     }
 
     private boolean runTests(Project project) {
@@ -48,13 +64,28 @@ public class Pipeline {
         }
     }
 
-    private boolean deploy(Project project) {
-        if (SUCCESS.equals(project.deploy())) {
+    private boolean deployToEnvironment(Project project, DeploymentEnvironment env) {
+        if (SUCCESS.equals(project.deploy(env))) {
             log.info("Deployment successful");
             return true;
         } else {
             log.error("Deployment failed");
             return false;
+        }
+    }
+
+    private boolean runSmokeTests(Project project) {
+        TestStatus status = project.runSmokeTests();
+        switch (status) {
+            case PASSING_TESTS:
+                log.info("Smoke tests passed");
+                return true;
+            case FAILING_TESTS:
+                log.error("Smoke tests failed");
+                return false;
+            default:
+                log.error("Smoke tests not defined");
+                return false;
         }
     }
 

@@ -30,6 +30,8 @@ class PipelineTest {
         when(config.sendEmailSummary()).thenReturn(true);
         Project project = Project.builder()
                 .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(true)
                 .build();
 
@@ -37,6 +39,8 @@ class PipelineTest {
 
         assertThat(log.getLoggedLines()).containsExactly(
                 "INFO: Tests passed",
+                "INFO: Deployment successful",
+                "INFO: Smoke tests passed",
                 "INFO: Deployment successful",
                 "INFO: Sending email"
         );
@@ -66,6 +70,8 @@ class PipelineTest {
         // projetos sem testes são tratados como se os testes tivessem passado
         Project project = Project.builder()
                 .setTestStatus(NO_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(true)
                 .build();
 
@@ -73,6 +79,8 @@ class PipelineTest {
 
         assertThat(log.getLoggedLines()).containsExactly(
                 "INFO: No tests",
+                "INFO: Deployment successful",
+                "INFO: Smoke tests passed",
                 "INFO: Deployment successful",
                 "INFO: Sending email"
         );
@@ -84,6 +92,8 @@ class PipelineTest {
         when(config.sendEmailSummary()).thenReturn(true);
         Project project = Project.builder()
                 .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(false)
                 .build();
 
@@ -91,6 +101,8 @@ class PipelineTest {
 
         assertThat(log.getLoggedLines()).containsExactly(
                 "INFO: Tests passed",
+                "INFO: Deployment successful",
+                "INFO: Smoke tests passed",
                 "ERROR: Deployment failed",
                 "INFO: Sending email"
         );
@@ -115,6 +127,8 @@ class PipelineTest {
         when(config.sendEmailSummary()).thenReturn(true);
         Project project = Project.builder()
                 .setTestStatus(NO_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(false)
                 .build();
 
@@ -122,6 +136,8 @@ class PipelineTest {
 
         assertThat(log.getLoggedLines()).containsExactly(
                 "INFO: No tests",
+                "INFO: Deployment successful",
+                "INFO: Smoke tests passed",
                 "ERROR: Deployment failed",
                 "INFO: Sending email"
         );
@@ -133,6 +149,8 @@ class PipelineTest {
         when(config.sendEmailSummary()).thenReturn(false);
         Project project = Project.builder()
                 .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(true)
                 .build();
 
@@ -161,6 +179,8 @@ class PipelineTest {
         when(config.sendEmailSummary()).thenReturn(false);
         Project project = Project.builder()
                 .setTestStatus(NO_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
                 .setDeploysSuccessfully(true)
                 .build();
 
@@ -168,5 +188,71 @@ class PipelineTest {
 
         assertThat(log.getLoggedLines()).contains("INFO: Email disabled");
         verifyNoInteractions(emailer);
+    }
+
+    @Test
+    void smokeTestsPass() {
+        when(config.sendEmailSummary()).thenReturn(true);
+        Project project = Project.builder()
+                .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfully(true)
+                .build();
+
+        pipeline.run(project);
+
+        assertThat(log.getLoggedLines()).contains(
+                "INFO: Tests passed",
+                "INFO: Smoke tests passed",
+                "INFO: Deployment successful"
+        );
+        verify(emailer).send("Deployment completed successfully");
+    }
+
+    @Test
+    void smokeTestsFail() {
+        when(config.sendEmailSummary()).thenReturn(true);
+        Project project = Project.builder()
+                .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setSmokeTestStatus(FAILING_TESTS)
+                .setDeploysSuccessfully(false)
+                .build();
+
+        pipeline.run(project);
+
+        assertThat(log.getLoggedLines()).contains("ERROR: Smoke tests failed");
+        verify(emailer).send("Deployment failed");
+    }
+
+    @Test
+    void smokeTestsNotDefined() {
+        when(config.sendEmailSummary()).thenReturn(true);
+        // setSmokeTestStatus não chamado → padrão é NO_TESTS no builder
+        Project project = Project.builder()
+                .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(true)
+                .setDeploysSuccessfully(false)
+                .build();
+
+        pipeline.run(project);
+
+        assertThat(log.getLoggedLines()).contains("ERROR: Smoke tests not defined");
+    }
+
+    @Test
+    void stagingDeployFails() {
+        when(config.sendEmailSummary()).thenReturn(true);
+        Project project = Project.builder()
+                .setTestStatus(PASSING_TESTS)
+                .setDeploysSuccessfullyToStaging(false)
+                .setDeploysSuccessfully(true)
+                .build();
+
+        pipeline.run(project);
+
+        assertThat(log.getLoggedLines()).contains("ERROR: Deployment failed");
+        assertThat(log.getLoggedLines()).doesNotContain("INFO: Smoke tests passed");
     }
 }
