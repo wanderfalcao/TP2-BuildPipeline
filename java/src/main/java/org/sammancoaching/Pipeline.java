@@ -17,42 +17,42 @@ public class Pipeline {
     }
 
     public void run(Project project) {
-        boolean testsPassed;
-        boolean deploySuccessful;
+        boolean testsPassed = runTests(project);
+        // deploy só ocorre se os testes passaram
+        boolean deploySuccessful = testsPassed && deploy(project);
+        sendEmailNotification(testsPassed, deploySuccessful);
+    }
 
+    private boolean runTests(Project project) {
         if (project.hasTests()) {
             if ("success".equals(project.runTests())) {
                 log.info("Tests passed");
-                testsPassed = true;
+                return true;
             } else {
                 log.error("Tests failed");
-                testsPassed = false;
+                return false;
             }
         } else {
             log.info("No tests");
-            testsPassed = true;
+            return true;
         }
+    }
 
-        if (testsPassed) {
-            if ("success".equals(project.deploy())) {
-                log.info("Deployment successful");
-                deploySuccessful = true;
-            } else {
-                log.error("Deployment failed");
-                deploySuccessful = false;
-            }
+    private boolean deploy(Project project) {
+        if ("success".equals(project.deploy())) {
+            log.info("Deployment successful");
+            return true;
         } else {
-            deploySuccessful = false;
+            log.error("Deployment failed");
+            return false;
         }
+    }
 
+    private void sendEmailNotification(boolean testsPassed, boolean deploySuccessful) {
         if (config.sendEmailSummary()) {
             log.info("Sending email");
             if (testsPassed) {
-                if (deploySuccessful) {
-                    emailer.send("Deployment completed successfully");
-                } else {
-                    emailer.send("Deployment failed");
-                }
+                emailer.send(deploySuccessful ? "Deployment completed successfully" : "Deployment failed");
             } else {
                 emailer.send("Tests failed");
             }
