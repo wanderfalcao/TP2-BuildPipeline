@@ -8,12 +8,21 @@ O sistema simula um pipeline de integração contínua. A classe `Pipeline` rece
 
 ## Como executar
 
+Via Maven:
+
 ```bash
 cd java
 mvn test
 ```
 
-Requer Java 25 e Maven instalados.
+Via Gradle:
+
+```bash
+cd java
+./gradlew test
+```
+
+Requer Java 25 instalado. O projeto usa Maven como build principal; o Gradle foi atualizado de 6.2.2 para 8.10 para compatibilidade com Java 25.
 
 ## Problemas identificados no código legado
 
@@ -24,6 +33,8 @@ Requer Java 25 e Maven instalados.
 **Ausência de testes:** O arquivo `PipelineTest.java` existia mas continha apenas um comentário `TODO`, deixando o código sem qualquer proteção durante mudanças.
 
 **Feature incompleta:** A infraestrutura para deploy em staging e smoke tests já existia no modelo (`Project.runSmokeTests()`, `DeploymentEnvironment.STAGING`), mas nunca era utilizada pelo pipeline.
+
+**Incompatibilidade de build:** O Gradle configurado (6.2.2) era incompatível com Java 25, exigindo atualização para continuar usando a IDE normalmente.
 
 ## Refatorações aplicadas
 
