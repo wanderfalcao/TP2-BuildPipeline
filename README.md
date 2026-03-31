@@ -2,67 +2,69 @@
 
 Trabalho prático baseado no kata [BuildPipeline-Refactoring-Kata](https://github.com/emilybache/BuildPipeline-Refactoring-Kata) de Emily Bache.
 
-## Sobre o projeto original
+## O projecto
 
-O sistema simula um pipeline de integração contínua. A classe `Pipeline` recebe um projeto e executa três etapas em sequência: roda os testes, faz o deploy e envia um resumo por email. O código original concentrava toda essa lógica em um único método `run()` com quase 60 linhas, aninhamento de condicionais em quatro níveis e uso de strings literais para comparar resultados de status.
+O sistema simula um pipeline de integração contínua. A classe `Pipeline` recebe um projecto e executa uma sequência de etapas: testes unitários, deploy em staging, smoke tests, deploy em produção e notificação por email. O código original concentrava toda essa lógica num único método `run()` com quase 60 linhas, aninhamento em quatro níveis e strings literais hardcoded para comparar resultados de status.
 
 ## Como executar
-
-Via Maven:
 
 ```bash
 cd java
 mvn test
 ```
 
-Via Gradle:
+Ou via Gradle (requer Java 25):
 
 ```bash
 cd java
 ./gradlew test
 ```
 
-Requer Java 25 instalado. O projeto usa Maven como build principal; o Gradle foi atualizado de 6.2.2 para 8.10 para compatibilidade com Java 25.
+O Maven é o build principal. O Gradle foi actualizado de 6.2.2 para 8.10 para compatibilidade com Java 25.
 
-## Problemas identificados no código legado
+---
 
-**Método monolítico:** `Pipeline.run()` misturava três responsabilidades distintas — execução de testes, deploy e notificação por email — tornando o código difícil de ler e de testar isoladamente.
+## Estado Original vs Estado Refatorado
 
-**Strings mágicas:** O resultado de `project.runTests()` e `project.deploy()` era comparado diretamente com a string literal `"success"` em múltiplos pontos, criando acoplamento frágil e risco de erros silenciosos.
+| Aspecto                            | Antes                                               | Depois                                                             |
+|------------------------------------|-----------------------------------------------------|--------------------------------------------------------------------|
+| **Estrutura do método principal**  | `run()` com ~58 linhas e 4 níveis de aninhamento    | `run()` com 2 linhas; lógica distribuída em 5 métodos focados      |
+| **Strings mágicas**                | `"success"` comparado directamente em 4 pontos      | Constante `SUCCESS` declarada uma vez (`Pipeline.java:11`)         |
+| **Estado do pipeline**             | Dois booleans soltos passados entre blocos          | `PipelineResult` record imutável com semântica explícita           |
+| **Staging e smoke tests**          | Infra existia no modelo mas nunca era chamada       | Integrados ao fluxo com falha explícita se não definidos           |
+| **Cobertura de testes**            | `PipelineTest.java` com apenas um comentário `TODO` | 15 testes cobrindo todos os caminhos de execução                   |
+| **Dependências**                   | Parâmetros no construtor (já correcto)              | Mantidas; interfaces `Config`, `Logger`, `Emailer` sem alteração   |
+| **Build**                          | Gradle 6.2.2 incompatível com Java 25               | Gradle 8.10; Maven e Gradle alinhados em `sourceCompatibility`     |
 
-**Ausência de testes:** O arquivo `PipelineTest.java` existia mas continha apenas um comentário `TODO`, deixando o código sem qualquer proteção durante mudanças.
+---
 
-**Feature incompleta:** A infraestrutura para deploy em staging e smoke tests já existia no modelo (`Project.runSmokeTests()`, `DeploymentEnvironment.STAGING`), mas nunca era utilizada pelo pipeline.
+## Estrutura de pacotes
 
-**Incompatibilidade de build:** O Gradle configurado (6.2.2) era incompatível com Java 25, exigindo atualização para continuar usando a IDE normalmente.
+```
+java/src/main/java/org/sammancoaching/
+├── Pipeline.java              # orquestrador do pipeline
+├── PipelineResult.java        # value object com estado da execução
+└── dependencies/
+    ├── Project.java            # modelo de projecto + Builder
+    ├── Config.java             # interface de configuração
+    ├── Logger.java             # interface de logging
+    ├── Emailer.java            # interface de notificação
+    ├── DeploymentEnvironment.java  # enum STAGING / PRODUCTION
+    └── TestStatus.java         # enum NO_TESTS / PASSING_TESTS / FAILING_TESTS
 
-## Refatorações aplicadas
+java/src/test/java/org/sammancoaching/
+├── PipelineTest.java          # 15 testes de integração
+└── CapturingLogger.java       # test double para verificar logs
+```
 
-### Extração de métodos
+---
 
-O método `run()` foi dividido em métodos menores, cada um com uma responsabilidade clara: `runTests`, `deployToEnvironment`, `runSmokeTests` e `sendEmailNotification`. O método público ficou reduzido a duas linhas de delegação, funcionando como um índice do fluxo.
+## Principais decisões de refatoração
 
-Essa mudança facilita a leitura, o teste unitário de cada etapa e a extensão futura do pipeline sem mexer na estrutura geral.
+**Extração de métodos (SLAP)** — O `run()` original misturava abstracções: comparação de string bruta, decisão de fluxo e chamadas a infra no mesmo nível. Cada responsabilidade foi extraída para um método com nome declarativo. O método público ficou como índice do fluxo; os privados tratam os detalhes.
 
-### Constante para status de sucesso
+**`PipelineResult` como value object** — Os dois booleans que representavam o estado do pipeline perdiam contexto ao ser passados implicitamente entre blocos. Agrupá-los num `record` imutável torna o vínculo explícito e elimina parâmetros soltos.
 
-A string `"success"` foi extraída para uma constante `SUCCESS` na classe `Pipeline`. Além de eliminar a repetição, deixa explícito que o valor tem significado semântico e deve ser tratado com cuidado.
+**Constante `SUCCESS`** — Não é só evitar repetição. A string `"success"` tem significado de protocolo — é a resposta que `Project.deploy()` e `Project.runTests()` devolvem para indicar sucesso. Dar-lhe um nome deixa isso claro.
 
-### Value object `PipelineResult`
-
-Os dois booleans que representavam o estado do pipeline (`testsPassed` e `deploySuccessful`) foram agrupados em um record `PipelineResult`. Isso elimina parâmetros soltos passados entre métodos e torna o estado do pipeline explícito como um objeto com identidade própria.
-
-### Implementação dos smoke tests
-
-O pipeline foi estendido para incluir as etapas de staging antes do deploy em produção:
-
-1. Testes unitários
-2. Deploy em staging
-3. Smoke tests em staging
-4. Deploy em produção
-
-Se os smoke tests não estiverem definidos no projeto, o pipeline falha com uma mensagem de erro clara. Essa mudança foi coberta por quatro novos testes automatizados.
-
-## Testes
-
-O projeto conta com 13 testes cobrindo os principais cenários do pipeline: testes passando, testes falhando, projetos sem testes, falha de deploy, falha de smoke tests, smoke tests não definidos, falha no staging e envio de email desabilitado.
+**Smoke tests e staging** — A infra já existia no modelo (`DeploymentEnvironment.STAGING`, `Project.runSmokeTests()`). Integrá-la completou o comportamento esperado de um pipeline de CI/CD real, sem alterar as interfaces existentes.
